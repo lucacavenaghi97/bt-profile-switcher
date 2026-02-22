@@ -4,6 +4,16 @@
 import subprocess
 import re
 
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("AyatanaAppIndicator3", "0.1")
+gi.require_version("Notify", "0.7")
+from gi.repository import Gtk, GLib, Notify
+from gi.repository import AyatanaAppIndicator3 as AppIndicator
+
+
+REFRESH_INTERVAL_MS = 5000
+
 
 def find_bt_device():
     """Find the first Bluetooth audio device in WirePlumber.
@@ -71,12 +81,88 @@ def set_profile(device_id, profile_index):
     )
 
 
+class BtProfileSwitcher:
+    def __init__(self):
+        Notify.init("bt-profile-switcher")
+        self.device_id = None
+        self.device_name = None
+        self.profiles = []
+        self.active_profile = None
+
+        self.indicator = AppIndicator.Indicator.new(
+            "bt-profile-switcher",
+            "audio-headphones",
+            AppIndicator.IndicatorCategory.HARDWARE,
+        )
+        self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+        self.menu = Gtk.Menu()
+        self.indicator.set_menu(self.menu)
+
+        self.refresh()
+        GLib.timeout_add(REFRESH_INTERVAL_MS, self.refresh)
+
+    def refresh(self):
+        """Poll device state and rebuild menu."""
+        self.device_id, self.device_name = find_bt_device()
+
+        for child in self.menu.get_children():
+            self.menu.remove(child)
+
+        if self.device_id is None:
+            item = Gtk.MenuItem(label="No Bluetooth headphones connected")
+            item.set_sensitive(False)
+            self.menu.append(item)
+            self.indicator.set_icon_full(
+                "audio-headphones-symbolic", "disconnected"
+            )
+        else:
+            self.profiles = get_profiles(self.device_id)
+            self.active_profile = get_active_profile(self.device_id)
+
+            header = Gtk.MenuItem(label=self.device_name)
+            header.set_sensitive(False)
+            self.menu.append(header)
+            self.menu.append(Gtk.SeparatorMenuItem())
+
+            for idx, name, desc in self.profiles:
+                item = Gtk.CheckMenuItem(label=desc)
+                item.set_draw_as_radio(True)
+                is_active = name == self.active_profile
+                item.set_active(is_active)
+                item.connect("toggled", self.on_profile_toggled, idx, name, desc)
+                self.menu.append(item)
+
+            self.indicator.set_icon_full(
+                "audio-headphones", self.device_name
+            )
+
+        self.menu.append(Gtk.SeparatorMenuItem())
+        quit_item = Gtk.MenuItem(label="Quit")
+        quit_item.connect("activate", self.on_quit)
+        self.menu.append(quit_item)
+
+        self.menu.show_all()
+        return True
+
+    def on_profile_toggled(self, item, profile_index, profile_name, profile_desc):
+        if not item.get_active():
+            return
+        if profile_name == self.active_profile:
+            return
+        set_profile(self.device_id, profile_index)
+        self.active_profile = profile_name
+        Notify.Notification.new(
+            "bt-profile-switcher",
+            f"Switched to {profile_desc}",
+            "audio-headphones",
+        ).show()
+        self.refresh()
+
+    def on_quit(self, _):
+        Notify.uninit()
+        Gtk.main_quit()
+
+
 if __name__ == "__main__":
-    dev_id, dev_name = find_bt_device()
-    print(f"Device: {dev_name} (id={dev_id})")
-    if dev_id:
-        profiles = get_profiles(dev_id)
-        for idx, name, desc in profiles:
-            print(f"  [{idx}] {name}: {desc}")
-        active = get_active_profile(dev_id)
-        print(f"Active: {active}")
+    BtProfileSwitcher()
+    Gtk.main()
