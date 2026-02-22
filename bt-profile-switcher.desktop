@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bluetooth Profile Switcher
+Comment=Switch Bluetooth headphone profiles from the system tray
+Exec=bt-profile-switcher
+Icon=audio-headphones
+Terminal=false
+Categories=AudioVideo;Audio;Settings;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
