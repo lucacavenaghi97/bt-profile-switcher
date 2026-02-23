@@ -114,6 +114,28 @@ def set_profile(device_id, profile_index):
     )
 
 
+def find_bt_address():
+    """Find the MAC address of the connected Bluetooth audio device."""
+    result = subprocess.run(
+        ["bluetoothctl", "devices", "Connected"], capture_output=True, text=True
+    )
+    for line in result.stdout.splitlines():
+        match = re.search(r"Device\s+([0-9A-F:]{17})", line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def reconnect_device(address):
+    """Disconnect and reconnect a Bluetooth device."""
+    subprocess.run(["bluetoothctl", "disconnect", address],
+                   capture_output=True, timeout=5)
+    import time
+    time.sleep(2)
+    subprocess.run(["bluetoothctl", "connect", address],
+                   capture_output=True, timeout=10)
+
+
 class BtProfileSwitcher:
     def __init__(self):
         Notify.init("bt-profile-switcher")
@@ -176,6 +198,12 @@ class BtProfileSwitcher:
             )
 
         self.menu.append(Gtk.SeparatorMenuItem())
+
+        if self.device_id is not None:
+            reconnect_item = Gtk.MenuItem(label="Reconnect")
+            reconnect_item.connect("activate", self._on_reconnect)
+            self.menu.append(reconnect_item)
+
         quit_item = Gtk.MenuItem(label="Quit")
         quit_item.connect("activate", self._on_quit)
         self.menu.append(quit_item)
@@ -223,6 +251,23 @@ class BtProfileSwitcher:
             f"Switched to {profile_label}",
             "audio-headphones",
         ).show()
+
+    def _on_reconnect(self, _):
+        address = find_bt_address()
+        if not address:
+            return
+        Notify.Notification.new(
+            "bt-profile-switcher",
+            "Reconnecting...",
+            "audio-headphones",
+        ).show()
+
+        def do_reconnect():
+            reconnect_device(address)
+            GLib.timeout_add(3000, self._build_menu)
+
+        import threading
+        threading.Thread(target=do_reconnect, daemon=True).start()
 
     def _on_quit(self, _):
         Notify.uninit()
