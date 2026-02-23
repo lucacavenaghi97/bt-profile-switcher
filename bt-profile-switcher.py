@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Bluetooth profile switcher — system tray app for Linux."""
 
+import fcntl
+import os
 import subprocess
 import re
+import sys
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -227,5 +230,12 @@ class BtProfileSwitcher:
 
 
 if __name__ == "__main__":
+    lock_path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "bt-profile-switcher.lock")
+    lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(0)
+
     BtProfileSwitcher()
     Gtk.main()
